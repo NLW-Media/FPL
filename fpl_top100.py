@@ -25,10 +25,10 @@ Deadlines are never hardcoded. They are read live from FPL's bootstrap-static
 endpoint on every run, so fixture changes and postponements are handled
 automatically.
 
-Duplicate protection: if reports/fpl_gw{N}.md already exists, the script exits
-without doing anything. Combined with the workflow committing that file back to
-the repo, this guarantees exactly one brief per gameweek no matter how many
-times the schedule fires.
+Duplicate protection: a scheduled run writes reports/.sent_gw{N} and any later
+scheduled run for the same gameweek sees it and exits. Manual runs (--force)
+skip both the timing window and the stamp, so you can test at any time without
+blocking the real pre-deadline brief.
 """
 
 import argparse
@@ -475,11 +475,13 @@ def main():
         sys.exit("No upcoming gameweek - season may be over.")
 
     path = Path(args.out) / f"fpl_gw{next_gw}.md"
+    stamp = Path(args.out) / f".sent_gw{next_gw}"
 
-    # Duplicate guard: one brief per gameweek, however often the schedule fires.
-    if path.exists() and not args.force:
-        print(f"GW{next_gw} brief already exists at {path}. Nothing to do.",
-              file=sys.stderr)
+    # Duplicate guard: one scheduled brief per gameweek, however often cron fires.
+    # Manual runs use --force and never write the stamp, so testing whenever you
+    # like can never block the real pre-deadline brief.
+    if stamp.exists() and not args.force:
+        print(f"GW{next_gw} brief already sent. Nothing to do.", file=sys.stderr)
         return
 
     if deadline and not args.force:
@@ -523,6 +525,8 @@ def main():
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(report, encoding="utf-8")
+    if not args.force:
+        stamp.write_text(dt.datetime.now(dt.timezone.utc).isoformat(), encoding="utf-8")
     print(report)
     print(f"\nSaved to {path}", file=sys.stderr)
 
