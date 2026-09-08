@@ -10,12 +10,14 @@ Produces ONE markdown report combining:
   5. xG / xA / xGI for midfielders and forwards
   6. Biggest ownership gaps: top-100 vs global (where the elite are ahead of the crowd)
   7. DefCon leaderboard - threshold hits, not raw totals
+Plus, with --team-id, a section 0 comparing your own squad against the elite.
 
 Usage:
     python fpl_top100.py                 # fires only 5.5-8h before the next deadline
     python fpl_top100.py --deadlines     # print the full schedule and exit (no report)
     python fpl_top100.py --force         # build the report regardless of timing
     python fpl_top100.py --min-hours 5.5 --max-hours 8
+    python fpl_top100.py --team-id 484852 # compare your own squad to the elite
     python fpl_top100.py --n 100         # how many managers to track
     python fpl_top100.py --email you@x.com   # also send via Resend (needs RESEND_API_KEY)
 
@@ -214,6 +216,25 @@ def defcon_cells(dc, pid):
     return str(d["hits"]), f"{d['actions'] / d['apps']:.1f}"
 
 
+def load_my_squad(entry_id, gw):
+    """The user's own locked squad for a completed gameweek. Public endpoint."""
+    data = get(f"{API}/entry/{entry_id}/event/{gw}/picks/")
+    if not data:
+        return None
+    picks = data.get("picks", [])
+    hist = data.get("entry_history") or {}
+    return {
+        "ids": [p["element"] for p in picks],
+        "starting": [p["element"] for p in picks if p.get("position", 99) <= 11],
+        "captain": next((p["element"] for p in picks if p.get("is_captain")), None),
+        "chip": data.get("active_chip"),
+        "bank": hist.get("bank", 0) / 10,
+        "value": hist.get("value", 0) / 10,
+        "rank": hist.get("overall_rank"),
+        "points": hist.get("points"),
+    }
+
+
 def load_top_managers(n):
     """Overall league 314. 50 entries per page."""
     ids, page = [], 1
@@ -268,7 +289,7 @@ def line(p, extra=""):
 
 
 def build_report(players, top, last_gw, next_gw, deadline, squads, captains,
-                 net_in, chips, dc):
+                 net_in, chips, dc, mine=None):
     n = len(top)
     out = []
     a = out.append
@@ -287,6 +308,81 @@ def build_report(players, top, last_gw, next_gw, deadline, squads, captains,
       f"{last_gw}. FPL hides GW{next_gw} squads until the deadline passes. "
       "Live global ownership, movers and xG below are current as of now.")
     a("")
+
+    # 0. your squad
+    if mine:
+        a(f"## 0. Your squad vs the top {n}")
+        bits = []
+        if mine["rank"]:
+            bits.append(f"OR {mine['rank']:,}")
+        if mine["points"] is not None:
+            bits.append(f"GW{last_gw}: {mine['points']} pts")
+        bits.append(f"squad £{mine['value']:.1f}m, bank £{mine['bank']:.1f}m")
+        if mine["chip"]:
+            bits.append(f"chip: {mine['chip']}")
+        a(" | ".join(bits))
+        a("")
+
+        a("| Player | Pos | Elite | Global | Edge | DefCon | xGI/90 |")
+        a("|--------|-----|-------|--------|------|--------|--------|")
+        order = {"GKP": 0, "DEF": 1, "MID": 2, "FWD": 3}
+        for pid in sorted(mine["ids"],
+                          key=lambda i: (order.get(players.get(i, {}).get("pos"), 9),
+                                         -squads.get(i, 0))):
+            p = players.get(pid)
+            if not p:
+                continue
+            elite = 100 * squads.get(pid, 0) / n
+            xi = "" if pid in mine["starting"] else " *(bench)*"
+            cap = " **(C)**" if pid == mine["captain"] else ""
+            hits, _ = defcon_cells(dc, pid)
+            a(f"| {line(p)}{cap}{xi} | {p['pos']} | {elite:.0f}% | {p['owned']:.1f}% | "
+              f"{elite - p['owned']:+.0f} | {hits} | {p['xgi90']:.2f} |")
+        a("")
+
+        owned = set(mine["ids"])
+        missing = sorted(
+            [(100 * c / n, pid) for pid, c in squads.items()
+             if pid not in owned and 100 * c / n >= 30 and players.get(pid)],
+            reverse=True)[:8]
+        if missing:
+            a(f"**Owned by the top {n}, missing from your squad**")
+            a("")
+            a("| Player | Pos | Elite | Global | Price | xGI/90 |")
+            a("|--------|-----|-------|--------|-------|--------|")
+            for elite, pid in missing:
+                p = players[pid]
+                a(f"| {line(p)} | {p['pos']} | {elite:.0f}% | {p['owned']:.1f}% | "
+                  f"£{p['cost']:.1f} | {p['xgi90']:.2f} |")
+            a("")
+
+        risk = sorted(
+            [(100 * squads.get(pid, 0) / n, net_in.get(pid, 0), pid)
+             for pid in owned
+             if players.get(pid) and 100 * squads.get(pid, 0) / n <= 10])
+        if risk:
+            a(f"**In your squad, largely avoided by the top {n}**")
+            a("")
+            a("| Player | Pos | Elite | Global | Their net move | xGI/90 |")
+            a("|--------|-----|-------|--------|----------------|--------|")
+            for elite, net, pid in risk[:8]:
+                p = players[pid]
+                a(f"| {line(p)} | {p['pos']} | {elite:.0f}% | {p['owned']:.1f}% | "
+                  f"{net:+d} | {p['xgi90']:.2f} |")
+            a("")
+
+        if mine["captain"] and captains:
+            top_cap, top_ct = captains.most_common(1)[0]
+            mycap = players.get(mine["captain"])
+            if mycap:
+                if mine["captain"] == top_cap:
+                    a(f"**Captain:** {mycap['name']} — same as {top_ct}% of the top {n}.")
+                else:
+                    tc = players.get(top_cap)
+                    a(f"**Captain:** you had {mycap['name']}; "
+                      f"{top_ct}% of the top {n} had "
+                      f"{tc['name'] if tc else 'someone else'}.")
+        a("")
 
     # 1. ownership by position
     a(f"## 1. Top-{n} ownership by position (GW{last_gw} locked squads)")
@@ -460,6 +556,8 @@ def main():
     ap.add_argument("--deadlines", action="store_true",
                     help="Print the deadline schedule and exit.")
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--team-id", type=int,
+                    help="Your own FPL entry id, to compare your squad against the elite.")
     ap.add_argument("--email")
     ap.add_argument("--out", default="reports")
     args = ap.parse_args()
@@ -520,8 +618,15 @@ def main():
     print("Building DefCon history...", file=sys.stderr)
     dc = load_defcon(last_gw, players)
 
+    mine = None
+    if args.team_id:
+        print(f"Loading your squad (entry {args.team_id})...", file=sys.stderr)
+        mine = load_my_squad(args.team_id, last_gw)
+        if not mine:
+            print("Could not load your squad — carrying on without it.", file=sys.stderr)
+
     report = build_report(players, top, last_gw, next_gw, deadline,
-                          squads, captains, net_in, chips, dc)
+                          squads, captains, net_in, chips, dc, mine)
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(report, encoding="utf-8")
