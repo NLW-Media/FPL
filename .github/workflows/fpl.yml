@@ -25,7 +25,7 @@ jobs:
         run: pip install requests
 
       - name: Run the tracker
-        run: python fpl_top100.py
+        run: python fpl_top100.py --force
 
       - name: Commit the report
         if: hashFiles('reports/*.md') != ''
