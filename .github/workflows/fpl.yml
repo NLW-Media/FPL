@@ -4,6 +4,25 @@ on:
   schedule:
     - cron: '0 * * * *'
   workflow_dispatch:
+    inputs:
+      free_transfers:
+        description: 'Free transfers you have'
+        required: false
+        default: '1'
+        type: choice
+        options: ['1', '2', '3', '4', '5']
+      horizon:
+        description: 'Gameweeks to project over'
+        required: false
+        default: '4'
+        type: choice
+        options: ['1', '2', '3', '4', '5', '6']
+      sample:
+        description: 'Managers to sample'
+        required: false
+        default: '500'
+        type: choice
+        options: ['100', '250', '500', '1000']
 
 permissions:
   contents: write
@@ -12,6 +31,7 @@ permissions:
 jobs:
   brief:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Get the code
         uses: actions/checkout@v4
@@ -25,7 +45,15 @@ jobs:
         run: pip install requests
 
       - name: Run the tracker
-        run: python fpl_top100.py --team-id 484852 ${{ github.event_name == 'workflow_dispatch' && '--force' || '' }}
+        run: |
+          python fpl_top100.py \
+            --team-id 484852 \
+            --n "${{ inputs.sample || '500' }}" \
+            --workers 5 \
+            --window 4 \
+            --horizon "${{ inputs.horizon || '4' }}" \
+            --free-transfers "${{ inputs.free_transfers || '1' }}" \
+            ${{ github.event_name == 'workflow_dispatch' && '--force' || '' }}
 
       - name: Commit the report
         if: hashFiles('reports/*.md') != ''
