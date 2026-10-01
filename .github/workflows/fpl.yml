@@ -58,7 +58,6 @@ jobs:
       - name: Commit the report
         if: hashFiles('reports/*.md') != ''
         run: |
-          cp "$(ls -t reports/fpl_gw*.md | head -1)" reports/latest.md
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add reports/
@@ -70,6 +69,5 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          FILE=$(ls -t reports/fpl_gw*.md | head -1)
-          GW=$(basename "$FILE" .md | sed 's/fpl_gw//')
-          gh issue create --title "FPL GW$GW brief" --body-file "$FILE"
+          GW=$(head -1 reports/latest.md | grep -o '[0-9]\+')
+          gh issue create --title "FPL GW$GW brief" --body-file reports/latest.md
