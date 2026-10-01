@@ -45,6 +45,7 @@ jobs:
         run: pip install requests
 
       - name: Run the tracker
+        id: run
         run: |
           python fpl_top100.py \
             --team-id 484852 \
@@ -54,9 +55,14 @@ jobs:
             --horizon "${{ inputs.horizon || '4' }}" \
             --free-transfers "${{ inputs.free_transfers || '1' }}" \
             ${{ github.event_name == 'workflow_dispatch' && '--force' || '' }}
+          # Old reports are committed, so hashFiles() is always true. Only carry
+          # on if this run actually wrote something.
+          if [ -n "$(git status --porcelain reports/)" ]; then
+            echo "built=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Commit the report
-        if: hashFiles('reports/*.md') != ''
+        if: steps.run.outputs.built == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -65,7 +71,7 @@ jobs:
           git push
 
       - name: Post the brief as an issue
-        if: hashFiles('reports/*.md') != ''
+        if: steps.run.outputs.built == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
