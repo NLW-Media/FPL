@@ -983,6 +983,9 @@ def main():
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(report, encoding="utf-8")
+    # Written here rather than copied in the workflow: `ls -t` is unreliable after
+    # a git checkout, which stamps every file with the same mtime.
+    (Path(args.out) / "latest.md").write_text(report, encoding="utf-8")
     if not args.force:
         stamp.write_text(dt.datetime.now(dt.timezone.utc).isoformat(), encoding="utf-8")
     print(report)
