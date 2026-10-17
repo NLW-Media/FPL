@@ -20,7 +20,7 @@ Captain squads are the manager's real team and are kept. Chip usage counts are
 reported in full either way.
 
 Usage:
-    python fpl_top100.py                  # fires only 5.5-8h before the deadline
+    python fpl_top100.py                  # fires once, 1-12h before the deadline
     python fpl_top100.py --deadlines      # print the schedule and exit
     python fpl_top100.py --force          # build regardless of timing
     python fpl_top100.py --team-id 484852 # your squad + transfer recommendations
@@ -853,8 +853,10 @@ def main():
                     help="How many managers to sample from the Overall league.")
     ap.add_argument("--workers", type=int, default=5,
                     help="Parallel fetches. Raise carefully - FPL rate-limits bursts.")
-    ap.add_argument("--min-hours", type=float, default=5.5)
-    ap.add_argument("--max-hours", type=float, default=8.0)
+    # GitHub runs the "hourly" cron every 3-9h in practice, so the window has to
+    # be wider than the worst gap. The .sent stamp stops it building twice.
+    ap.add_argument("--min-hours", type=float, default=1.0)
+    ap.add_argument("--max-hours", type=float, default=12.0)
     ap.add_argument("--horizon", type=int, default=4,
                     help="Gameweeks to project points over.")
     ap.add_argument("--window", type=int, default=4,
