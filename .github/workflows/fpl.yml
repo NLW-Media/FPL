@@ -2,7 +2,8 @@ name: FPL top-100 brief
 
 on:
   schedule:
-    - cron: '0 * * * *'
+    # Off the top of the hour: GitHub delays and drops :00 schedules most.
+    - cron: '17 * * * *'
   workflow_dispatch:
     inputs:
       free_transfers:
